@@ -8,6 +8,7 @@ import os
 import unicodedata
 import joblib
 import pandas as pd
+from urllib.parse import quote
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +23,9 @@ from procesamiento import crear_dataframe_entrada
 DIR_RAIZ = os.path.dirname(os.path.abspath(__file__))
 
 RUTA_IMAGENES = os.path.join(DIR_RAIZ, "imagenes_micorrizas")
+
+# 🔥 Crear carpeta si no existe (importante para Render)
+os.makedirs(RUTA_IMAGENES, exist_ok=True)
 
 
 def _buscar_archivo(*nombres_posibles):
@@ -58,9 +62,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# PUBLICAR CARPETA DE IMÁGENES
-if os.path.exists(RUTA_IMAGENES):
-    app.mount("/imagenes_micorrizas", StaticFiles(directory=RUTA_IMAGENES), name="imagenes_micorrizas")
+# 🔥 Montar SIEMPRE las imágenes
+app.mount(
+    "/imagenes_micorrizas",
+    StaticFiles(directory=RUTA_IMAGENES),
+    name="imagenes_micorrizas"
+)
 
 
 @app.get("/")
@@ -144,6 +151,7 @@ def estado():
         "modelo_ok": modelo is not None,
         "encoder_ok": encoder is not None,
         "dataset_ok": dataset is not None and not dataset.empty,
+        "imagenes_existen": os.path.exists(RUTA_IMAGENES),
     }
 
 
@@ -167,7 +175,6 @@ def predecir(req: PrediccionRequest):
             req.textura,
         )
 
-        # Asegurar orden correcto de columnas
         if hasattr(modelo, "feature_names_in_"):
             columnas = list(modelo.feature_names_in_)
             for col in columnas:
@@ -175,9 +182,6 @@ def predecir(req: PrediccionRequest):
                     df[col] = 0
             df = df[columnas]
 
-        # ==========================
-        # Predicción con probabilidades
-        # ==========================
         if hasattr(modelo, "predict_proba"):
 
             probas = modelo.predict_proba(df)[0]
@@ -234,8 +238,6 @@ def predecir(req: PrediccionRequest):
 # FUNCIONES AUXILIARES
 # ==========================================================
 
-from urllib.parse import quote
-
 def _obtener_url_imagen(especie):
     if not especie:
         return ""
@@ -248,22 +250,17 @@ def _obtener_url_imagen(especie):
 
     archivos = os.listdir(ruta_carpeta)
 
-    # Buscar imagen con el mismo nombre de la carpeta primero
     for archivo in archivos:
         nombre_sin_ext, ext = os.path.splitext(archivo)
         if nombre_sin_ext.lower() == nombre_carpeta.lower():
-            archivo_url = quote(archivo)
-            carpeta_url = quote(nombre_carpeta)
-            return f"/imagenes_micorrizas/{carpeta_url}/{archivo_url}"
+            return f"/imagenes_micorrizas/{quote(nombre_carpeta)}/{quote(archivo)}"
 
-    # Si no encuentra coincidencia exacta, usar la primera imagen válida
     for archivo in archivos:
         if archivo.lower().endswith((".png", ".jpg", ".jpeg")):
-            archivo_url = quote(archivo)
-            carpeta_url = quote(nombre_carpeta)
-            return f"/imagenes_micorrizas/{carpeta_url}/{archivo_url}"
+            return f"/imagenes_micorrizas/{quote(nombre_carpeta)}/{quote(archivo)}"
 
     return ""
+
 
 def _normalizar(s):
     if not s:
@@ -276,9 +273,7 @@ def _buscar_col(df, *candidatos):
     if df is None or df.empty:
         return None
 
-    columnas_norm = {
-        _normalizar(col): col for col in df.columns
-    }
+    columnas_norm = {_normalizar(col): col for col in df.columns}
 
     for cand in candidatos:
         cand_norm = _normalizar(cand)
@@ -323,12 +318,7 @@ def _obtener_info_especie(df, especie):
         "localidad": _valor(r, _buscar_col(df, "localidad")),
         "informacion": _valor(
             r,
-            _buscar_col(
-                df,
-                "informacion de la especie",
-                "informacion",
-                "información"
-            )
+            _buscar_col(df, "informacion de la especie", "informacion", "información")
         ),
         "particularidad": _valor(r, _buscar_col(df, "particularidad")),
     }
