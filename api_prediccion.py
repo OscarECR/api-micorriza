@@ -160,7 +160,7 @@ def predecir(req: PrediccionRequest):
             req.textura,
         )
 
-        # Ordenar columnas según modelo
+        # Asegurar orden correcto de columnas
         if hasattr(modelo, "feature_names_in_"):
             columnas = list(modelo.feature_names_in_)
             for col in columnas:
@@ -168,27 +168,60 @@ def predecir(req: PrediccionRequest):
                     df[col] = 0
             df = df[columnas]
 
-        # Predicción
+        # ==========================
+        # Predicción con probabilidades
+        # ==========================
         if hasattr(modelo, "predict_proba"):
+
             probas = modelo.predict_proba(df)[0]
+
+            # Índice de mayor probabilidad
             pred_idx = int(probas.argmax())
             confianza = float(probas[pred_idx]) * 100
+
+            especie_principal = str(
+                encoder.inverse_transform([pred_idx])[0]
+            )
+
+            # Obtener top 6 para excluir la principal y dejar 5
+            top_indices = probas.argsort()[::-1][:6]
+
+            alternativas = []
+
+            for idx in top_indices:
+                idx = int(idx)
+                especie_alt = str(
+                    encoder.inverse_transform([idx])[0]
+                )
+
+                if especie_alt != especie_principal:
+                    alternativas.append({
+                        "especie": especie_alt,
+                        "confianza": round(float(probas[idx]) * 100, 2),
+                        "info": _obtener_info_especie(dataset, especie_alt)
+                    })
+
+                if len(alternativas) >= 5:
+                    break
+
         else:
+            # Modelo sin probabilidades
             pred_idx = int(modelo.predict(df)[0])
             confianza = 100.0
-
-        especie = str(encoder.inverse_transform([pred_idx])[0])
-        info = _obtener_info_especie(dataset, especie)
+            especie_principal = str(
+                encoder.inverse_transform([pred_idx])[0]
+            )
+            alternativas = []
 
         return {
-            "especie": especie,
+            "especie": especie_principal,
             "confianza": round(confianza, 2),
-            "info": info,
+            "info": _obtener_info_especie(dataset, especie_principal),
+            "especies_alternativas": alternativas,
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ==========================================================
 # FUNCIONES AUXILIARES
