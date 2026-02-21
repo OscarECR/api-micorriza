@@ -60,7 +60,7 @@ app.add_middleware(
 
 # PUBLICAR CARPETA DE IMÁGENES
 if os.path.exists(RUTA_IMAGENES):
-    app.mount("/imagenes", StaticFiles(directory=RUTA_IMAGENES), name="imagenes")
+    app.mount("/imagenes_micorrizas", StaticFiles(directory=RUTA_IMAGENES), name="imagenes_micorrizas")
 
 
 @app.get("/")
@@ -234,25 +234,36 @@ def predecir(req: PrediccionRequest):
 # FUNCIONES AUXILIARES
 # ==========================================================
 
+from urllib.parse import quote
+
 def _obtener_url_imagen(especie):
     if not especie:
         return ""
 
-    nombre = especie.strip()
-    posibles_extensiones = [".png", ".jpg", ".jpeg"]
+    nombre_carpeta = especie.strip()
+    ruta_carpeta = os.path.join(RUTA_IMAGENES, nombre_carpeta)
 
-    for ext in posibles_extensiones:
-        ruta_local = os.path.join(
-            RUTA_IMAGENES,
-            nombre,
-            f"{nombre}{ext}"
-        )
+    if not os.path.exists(ruta_carpeta):
+        return ""
 
-        if os.path.exists(ruta_local):
-            return f"/imagenes/{nombre}/{nombre}{ext}"
+    archivos = os.listdir(ruta_carpeta)
+
+    # Buscar imagen con el mismo nombre de la carpeta primero
+    for archivo in archivos:
+        nombre_sin_ext, ext = os.path.splitext(archivo)
+        if nombre_sin_ext.lower() == nombre_carpeta.lower():
+            archivo_url = quote(archivo)
+            carpeta_url = quote(nombre_carpeta)
+            return f"/imagenes_micorrizas/{carpeta_url}/{archivo_url}"
+
+    # Si no encuentra coincidencia exacta, usar la primera imagen válida
+    for archivo in archivos:
+        if archivo.lower().endswith((".png", ".jpg", ".jpeg")):
+            archivo_url = quote(archivo)
+            carpeta_url = quote(nombre_carpeta)
+            return f"/imagenes_micorrizas/{carpeta_url}/{archivo_url}"
 
     return ""
-
 
 def _normalizar(s):
     if not s:
