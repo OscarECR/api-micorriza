@@ -10,6 +10,7 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from procesamiento import crear_dataframe_entrada
 
@@ -19,6 +20,8 @@ from procesamiento import crear_dataframe_entrada
 # ==========================================================
 
 DIR_RAIZ = os.path.dirname(os.path.abspath(__file__))
+
+RUTA_IMAGENES = os.path.join(DIR_RAIZ, "imagenes")
 
 
 def _buscar_archivo(*nombres_posibles):
@@ -54,6 +57,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# PUBLICAR CARPETA DE IMÁGENES
+if os.path.exists(RUTA_IMAGENES):
+    app.mount("/imagenes", StaticFiles(directory=RUTA_IMAGENES), name="imagenes")
 
 
 @app.get("/")
@@ -175,7 +182,6 @@ def predecir(req: PrediccionRequest):
 
             probas = modelo.predict_proba(df)[0]
 
-            # Índice de mayor probabilidad
             pred_idx = int(probas.argmax())
             confianza = float(probas[pred_idx]) * 100
 
@@ -183,7 +189,6 @@ def predecir(req: PrediccionRequest):
                 encoder.inverse_transform([pred_idx])[0]
             )
 
-            # Obtener top 6 para excluir la principal y dejar 5
             top_indices = probas.argsort()[::-1][:6]
 
             alternativas = []
@@ -198,6 +203,7 @@ def predecir(req: PrediccionRequest):
                     alternativas.append({
                         "especie": especie_alt,
                         "confianza": round(float(probas[idx]) * 100, 2),
+                        "imagen": _obtener_url_imagen(especie_alt),
                         "info": _obtener_info_especie(dataset, especie_alt)
                     })
 
@@ -205,7 +211,6 @@ def predecir(req: PrediccionRequest):
                     break
 
         else:
-            # Modelo sin probabilidades
             pred_idx = int(modelo.predict(df)[0])
             confianza = 100.0
             especie_principal = str(
@@ -216,6 +221,7 @@ def predecir(req: PrediccionRequest):
         return {
             "especie": especie_principal,
             "confianza": round(confianza, 2),
+            "imagen": _obtener_url_imagen(especie_principal),
             "info": _obtener_info_especie(dataset, especie_principal),
             "especies_alternativas": alternativas,
         }
@@ -223,9 +229,30 @@ def predecir(req: PrediccionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ==========================================================
 # FUNCIONES AUXILIARES
 # ==========================================================
+
+def _obtener_url_imagen(especie):
+    if not especie:
+        return ""
+
+    nombre = especie.strip()
+    posibles_extensiones = [".png", ".jpg", ".jpeg"]
+
+    for ext in posibles_extensiones:
+        ruta_local = os.path.join(
+            RUTA_IMAGENES,
+            nombre,
+            f"{nombre}{ext}"
+        )
+
+        if os.path.exists(ruta_local):
+            return f"/imagenes/{nombre}/{nombre}{ext}"
+
+    return ""
+
 
 def _normalizar(s):
     if not s:
@@ -235,9 +262,6 @@ def _normalizar(s):
 
 
 def _buscar_col(df, *candidatos):
-    """
-    Busca columna por coincidencia parcial ignorando tildes.
-    """
     if df is None or df.empty:
         return None
 
@@ -267,11 +291,7 @@ def _obtener_info_especie(df, especie):
     if df is None or df.empty:
         return {}
 
-    col_esp = _buscar_col(
-        df,
-        "nombre cientifico",
-        "especie"
-    )
+    col_esp = _buscar_col(df, "nombre cientifico", "especie")
 
     if not col_esp:
         return {}
