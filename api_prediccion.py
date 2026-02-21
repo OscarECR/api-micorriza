@@ -21,7 +21,7 @@ from procesamiento import crear_dataframe_entrada
 
 DIR_RAIZ = os.path.dirname(os.path.abspath(__file__))
 
-RUTA_IMAGENES = os.path.join(DIR_RAIZ, "imagenes")
+RUTA_IMAGENES = os.path.join(DIR_RAIZ, "imagenes_micorrizas")
 
 
 def _buscar_archivo(*nombres_posibles):
