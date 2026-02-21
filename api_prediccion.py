@@ -22,7 +22,6 @@ DIR_RAIZ = os.path.dirname(os.path.abspath(__file__))
 
 
 def _buscar_archivo(*nombres_posibles):
-    """Busca archivo probando varios nombres posibles."""
     for nombre in nombres_posibles:
         ruta = os.path.join(DIR_RAIZ, nombre)
         if os.path.exists(ruta):
@@ -51,7 +50,7 @@ app = FastAPI(title="MicoTax API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Cambiar por dominio específico en producción
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -72,10 +71,9 @@ def home():
 
 def _cargar_modelo():
     if not os.path.exists(RUTA_MODELO):
-        print(f"AVISO: Modelo no encontrado en {RUTA_MODELO}")
+        print(f"Modelo no encontrado en {RUTA_MODELO}")
         return None
     try:
-        print(f"Cargando modelo desde: {RUTA_MODELO}")
         return joblib.load(RUTA_MODELO)
     except Exception as e:
         print(f"Error cargando modelo: {e}")
@@ -84,10 +82,9 @@ def _cargar_modelo():
 
 def _cargar_encoder():
     if not os.path.exists(RUTA_ENCODER):
-        print(f"AVISO: Encoder no encontrado en {RUTA_ENCODER}")
+        print(f"Encoder no encontrado en {RUTA_ENCODER}")
         return None
     try:
-        print(f"Cargando encoder desde: {RUTA_ENCODER}")
         return joblib.load(RUTA_ENCODER)
     except Exception as e:
         print(f"Error cargando encoder: {e}")
@@ -96,33 +93,24 @@ def _cargar_encoder():
 
 def _cargar_dataset():
     if not os.path.exists(RUTA_DATASET):
-        print(f"AVISO: Dataset no encontrado en {RUTA_DATASET}")
+        print(f"Dataset no encontrado en {RUTA_DATASET}")
         return None
 
-    print(f"Cargando dataset desde: {RUTA_DATASET}")
     for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
         try:
             df = pd.read_csv(RUTA_DATASET, encoding=enc)
-            print(f"Dataset cargado: {len(df)} filas, {len(df.columns)} columnas")
+            print(f"Dataset cargado: {len(df)} filas")
             return df
         except Exception:
             continue
 
-    print("ERROR: No se pudo cargar el dataset")
+    print("No se pudo cargar el dataset")
     return None
 
 
 modelo = _cargar_modelo()
 encoder = _cargar_encoder()
 dataset = _cargar_dataset()
-
-
-print("\n" + "=" * 60)
-print("MicoTax API - Estado de carga:")
-print(f"  Modelo: {'✓' if modelo else '✗'}")
-print(f"  Encoder: {'✓' if encoder else '✗'}")
-print(f"  Dataset: {'✓' if dataset is not None else '✗'}")
-print("=" * 60 + "\n")
 
 
 # ==========================================================
@@ -172,7 +160,7 @@ def predecir(req: PrediccionRequest):
             req.textura,
         )
 
-        # Asegurar columnas esperadas
+        # Ordenar columnas según modelo
         if hasattr(modelo, "feature_names_in_"):
             columnas = list(modelo.feature_names_in_)
             for col in columnas:
@@ -192,27 +180,10 @@ def predecir(req: PrediccionRequest):
         especie = str(encoder.inverse_transform([pred_idx])[0])
         info = _obtener_info_especie(dataset, especie)
 
-        # Top 5 alternativas
-        alternativas = []
-        if hasattr(modelo, "predict_proba"):
-            top_indices = probas.argsort()[::-1][:6]
-            for idx in top_indices:
-                idx = int(idx)
-                esp = str(encoder.inverse_transform([idx])[0])
-                if esp != especie:
-                    alternativas.append({
-                        "especie": esp,
-                        "confianza": round(float(probas[idx]) * 100, 2),
-                        "info": _obtener_info_especie(dataset, esp)
-                    })
-                if len(alternativas) >= 5:
-                    break
-
         return {
             "especie": especie,
             "confianza": round(confianza, 2),
             "info": info,
-            "especies_alternativas": alternativas,
         }
 
     except Exception as e:
@@ -231,13 +202,22 @@ def _normalizar(s):
 
 
 def _buscar_col(df, *candidatos):
+    """
+    Busca columna por coincidencia parcial ignorando tildes.
+    """
     if df is None or df.empty:
         return None
+
+    columnas_norm = {
+        _normalizar(col): col for col in df.columns
+    }
+
     for cand in candidatos:
-        c_norm = _normalizar(cand)
-        for col in df.columns:
-            if _normalizar(col) == c_norm:
-                return col
+        cand_norm = _normalizar(cand)
+        for col_norm, col_real in columnas_norm.items():
+            if cand_norm in col_norm:
+                return col_real
+
     return None
 
 
@@ -254,7 +234,12 @@ def _obtener_info_especie(df, especie):
     if df is None or df.empty:
         return {}
 
-    col_esp = _buscar_col(df, "Nombre cientifico", "nombre_cientifico", "especie")
+    col_esp = _buscar_col(
+        df,
+        "nombre cientifico",
+        "especie"
+    )
+
     if not col_esp:
         return {}
 
@@ -272,6 +257,14 @@ def _obtener_info_especie(df, especie):
         "habitat": _valor(r, _buscar_col(df, "habitat")),
         "pais": _valor(r, _buscar_col(df, "pais")),
         "localidad": _valor(r, _buscar_col(df, "localidad")),
-        "informacion": _valor(r, _buscar_col(df, "informacion")),
+        "informacion": _valor(
+            r,
+            _buscar_col(
+                df,
+                "informacion de la especie",
+                "informacion",
+                "información"
+            )
+        ),
         "particularidad": _valor(r, _buscar_col(df, "particularidad")),
     }
